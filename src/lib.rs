@@ -5,8 +5,10 @@ use mio::{Evented, Poll, PollOpt, Ready, Token};
 use std::io::Result;
 use std::os::unix::io::AsRawFd;
 use std::time::Duration;
-use timerfd::{ClockId, SetTimeFlags, TimerFd as InnerTimerFd, TimerState};
+use timerfd::{SetTimeFlags, TimerFd as InnerTimerFd, TimerState};
 use tokio_reactor::PollEvented;
+
+pub use timerfd::ClockId;
 
 struct Inner(InnerTimerFd);
 
