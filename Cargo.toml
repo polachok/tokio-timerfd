@@ -3,6 +3,11 @@ name = "tokio-timerfd"
 version = "0.1.0"
 authors = ["Alexander Polakov <a.polakov@iconic.vc>"]
 edition = "2018"
+description = "timerfd support for tokio"
+license = "MIT"
+documentation = "https://docs.rs/tokio-timerfd"
+repository = "https://github.com/polachok/tokio-timerfd"
+homepage = "https://github.com/polachok/tokio-timerfd"
 
 [dependencies]
 tokio-reactor = "0.1"
