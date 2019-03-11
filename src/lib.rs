@@ -53,22 +53,28 @@ impl TimerFd {
 
 #[cfg(test)]
 mod tests {
-    use std::time::Instant;
     use super::*;
+    use std::time::Instant;
+    use tokio::prelude::*;
 
     #[test]
     fn periodic_works() {
         let timer = TimerFd::new(ClockId::Monotonic).unwrap();
-        let now = Instant::now();
-        let fut = timer
-            .periodic(Duration::from_micros(10))
-            .take(10)
-            .map_err(|err| println!("{:?}", err))
-            .for_each(|_| {
-                //println!("hello");
-                Ok(())
-            });
-        tokio::run(fut);
-        println!("{:?}", now.elapsed());
+        tokio::run(future::lazy(|| {
+            let now = Instant::now();
+            timer
+                .periodic(Duration::from_micros(1))
+                .take(2)
+                .map_err(|err| println!("{:?}", err))
+                .for_each(move |_| {
+                    Ok(())
+                })
+                .and_then(move |_| {
+                    let elapsed = now.elapsed();
+                    println!("{:?}", elapsed);
+                    assert!(elapsed < Duration::from_millis(1));
+                    Ok(())
+                })
+        }));
     }
 }
