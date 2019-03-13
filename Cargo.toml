@@ -10,10 +10,12 @@ repository = "https://github.com/polachok/tokio-timerfd"
 homepage = "https://github.com/polachok/tokio-timerfd"
 
 [dependencies]
-tokio-reactor = "0.1"
+tokio-reactor = { path = "../tokio/tokio-reactor" }
+tokio-timer = { path = "../tokio/tokio-timer" }
+tokio-executor = { path = "../tokio/tokio-executor" }
 mio = "0.6"
 timerfd = "1.0"
 futures = "0.1"
 
 [dev-dependencies]
-tokio = "0.1"
+tokio = { path = "../tokio" }
