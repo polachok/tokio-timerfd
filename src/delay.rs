@@ -65,11 +65,27 @@ mod tests {
     use tokio::prelude::*;
 
     #[test]
+    fn delay_zero_duration() {
+        tokio::run(future::lazy(|| {
+            let now = Instant::now();
+            let delay = Delay::new(Instant::now());
+            delay
+                .and_then(|_| {
+                    let elapsed = now.elapsed();
+                    println!("{:?}", elapsed);
+                    assert!(elapsed < Duration::from_millis(1));
+                    Ok(())
+                })
+                .map_err(|err| panic!("{:?}", err))
+        }));
+    }
+
+    #[test]
     fn delay_works() {
         tokio::run(future::lazy(|| {
             let now = Instant::now();
-            let interval = Delay::new(now + Duration::from_micros(10));
-            interval
+            let delay = Delay::new(now + Duration::from_micros(10));
+            delay
                 .and_then(|_| {
                     let elapsed = now.elapsed();
                     println!("{:?}", elapsed);
