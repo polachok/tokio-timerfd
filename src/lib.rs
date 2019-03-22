@@ -10,6 +10,12 @@ use tokio_reactor::PollEvented;
 
 pub use timerfd::ClockId;
 
+mod delay;
+mod interval;
+
+pub use delay::Delay;
+pub use interval::Interval;
+
 struct Inner(InnerTimerFd);
 
 impl Evented for Inner {
@@ -34,8 +40,20 @@ impl TimerFd {
         Ok(TimerFd(inner))
     }
 
+    fn set_state(&mut self, state: TimerState, flags: SetTimeFlags) {
+        (self.0).get_mut().0.set_state(state, flags);
+    }
+
+    fn poll_read(&mut self) -> Result<Async<()>> {
+        let ready = try_ready!(self.0.poll_read_ready(Ready::readable()));
+        self.0.get_mut().0.read();
+        self.0.clear_read_ready(ready)?;
+        Ok(Async::Ready(()))
+    }
+
+    #[deprecated(note = "please use Interval")]
     pub fn periodic(mut self, dur: Duration) -> impl Stream<Item = (), Error = std::io::Error> {
-        (self.0).get_mut().0.set_state(
+        self.set_state(
             TimerState::Periodic {
                 current: dur,
                 interval: dur,
@@ -43,9 +61,7 @@ impl TimerFd {
             SetTimeFlags::Default,
         );
         poll_fn(move || {
-            let ready = try_ready!(self.0.poll_read_ready(Ready::readable()));
-            self.0.get_mut().0.read();
-            self.0.clear_read_ready(ready)?;
+            try_ready!(self.poll_read());
             Ok(Async::Ready(Some(())))
         })
     }
@@ -66,9 +82,7 @@ mod tests {
                 .periodic(Duration::from_micros(1))
                 .take(2)
                 .map_err(|err| println!("{:?}", err))
-                .for_each(move |_| {
-                    Ok(())
-                })
+                .for_each(move |_| Ok(()))
                 .and_then(move |_| {
                     let elapsed = now.elapsed();
                     println!("{:?}", elapsed);
