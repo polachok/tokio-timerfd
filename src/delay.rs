@@ -57,3 +57,26 @@ impl Future for Delay {
         Ok(Async::Ready(()))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::{Duration, Instant};
+    use tokio::prelude::*;
+
+    #[test]
+    fn delay_works() {
+        tokio::run(future::lazy(|| {
+            let now = Instant::now();
+            let interval = Delay::new(now + Duration::from_micros(10));
+            interval
+                .and_then(|_| {
+                    let elapsed = now.elapsed();
+                    println!("{:?}", elapsed);
+                    assert!(elapsed < Duration::from_millis(1));
+                    Ok(())
+                })
+                .map_err(|err| panic!("{:?}", err))
+        }));
+    }
+}
