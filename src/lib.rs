@@ -11,9 +11,11 @@ use tokio_reactor::PollEvented;
 pub use timerfd::ClockId;
 
 mod delay;
+mod delay_queue;
 mod interval;
 
 pub use delay::Delay;
+pub use delay_queue::DelayQueue;
 pub use interval::Interval;
 
 struct Inner(InnerTimerFd);

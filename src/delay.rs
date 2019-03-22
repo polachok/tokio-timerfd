@@ -34,6 +34,7 @@ impl Delay {
     pub fn reset(&mut self, deadline: Instant) {
         self.deadline = deadline;
         self.initialized = false;
+        // TODO: run poll
     }
 }
 
