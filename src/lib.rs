@@ -1,4 +1,4 @@
-//! This crates provides [tokio-timer](https://docs.rs/tokio-timer)-like API 
+//! This crates provides [tokio-timer](https://docs.rs/tokio-timer)-like API
 //! on top of timerfd. `timerfd` is a Linux-specific API providing timers as
 //! file descriptors. The advantage of `timerfd` is that it provides more
 //! granularity than epoll_wait, which only provides 1 millisecond timeouts.

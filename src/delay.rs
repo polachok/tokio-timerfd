@@ -94,15 +94,19 @@ mod tests {
         tokio::run(future::lazy(|| {
             let now = Instant::now();
             let mut delay_fired = false;
-            let delay = Delay::new(now + Duration::from_millis(500)).unwrap().and_then(move |_| {
-                delay_fired = true;
-                Ok(())
-            });
-            delay.select(future::ok(())).and_then(move |_| {
-                assert_eq!(delay_fired, false);
-                Ok(())
-            })
-            .map_err(|_err| panic!())
+            let delay = Delay::new(now + Duration::from_millis(500))
+                .unwrap()
+                .and_then(move |_| {
+                    delay_fired = true;
+                    Ok(())
+                });
+            delay
+                .select(future::ok(()))
+                .and_then(move |_| {
+                    assert_eq!(delay_fired, false);
+                    Ok(())
+                })
+                .map_err(|_err| panic!())
         }))
     }
 

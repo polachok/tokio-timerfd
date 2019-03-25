@@ -4,6 +4,7 @@ use std::io::Error as IoError;
 use std::time::{Duration, Instant};
 use timerfd::{SetTimeFlags, TimerState};
 
+/// A stream representing notifications at fixed interval
 pub struct Interval {
     timerfd: TimerFd,
     at: Instant,
@@ -12,8 +13,19 @@ pub struct Interval {
 }
 
 impl Interval {
+    /// Create a new `Interval` that starts at `at` and yields every `duration`
+    /// interval after that.
+    /// The `duration` argument must be a non-zero duration.
+    ///
+    /// # Panics
+    ///
+    /// This function panics if `duration` is zero.
     pub fn new(at: Instant, duration: Duration) -> Result<Interval, IoError> {
         let timerfd = TimerFd::new(ClockId::Monotonic)?;
+        assert!(
+            duration > Duration::new(0, 0),
+            "`duration` must be non-zero."
+        );
         Ok(Interval {
             timerfd,
             at,
@@ -22,6 +34,15 @@ impl Interval {
         })
     }
 
+    /// Creates new `Interval` that yields with interval of `duration`.
+    ///
+    /// The function is shortcut for `Interval::new(Instant::now() + duration, duration)`.
+    ///
+    /// The `duration` argument must be a non-zero duration.
+    ///
+    /// # Panics
+    ///
+    /// This function panics if `duration` is zero.
     pub fn new_interval(duration: Duration) -> Result<Interval, IoError> {
         Self::new(Instant::now() + duration, duration)
     }
@@ -41,9 +62,6 @@ impl Stream for Interval {
             };
             if first_duration == Duration::from_millis(0) {
                 first_duration = self.duration
-            }
-            if self.duration == Duration::from_millis(0) {
-                return Ok(Async::Ready(Some(())));
             }
             self.timerfd.set_state(
                 TimerState::Periodic {
