@@ -29,9 +29,14 @@ impl PartialEq for Entry {
 }
 impl Eq for Entry {}
 
+/// Token to a value stored in a `DelayQueue`.
 #[derive(Debug)]
 pub struct Key(usize);
 
+/// A queue of delayed elements.
+///
+/// Once an element is inserted into the `DelayQueue`, it is yielded once the
+/// specified deadline has been reached.
 pub struct DelayQueue<T> {
     timerfd: TimerFd,
     slab: Slab<T>,
@@ -40,6 +45,9 @@ pub struct DelayQueue<T> {
 }
 
 impl<T> DelayQueue<T> {
+    /// Create a new, empty, `DelayQueue`
+    ///
+    /// The queue will not allocate storage until items are inserted into it.
     pub fn new() -> Result<DelayQueue<T>, IoError> {
         let timerfd = TimerFd::new(ClockId::Monotonic)?;
         Ok(DelayQueue {
@@ -75,6 +83,15 @@ impl<T> DelayQueue<T> {
         Ok(Async::NotReady)
     }
 
+    /// Insert `value` into the queue set to expire at a specific instant in
+    /// time.
+    ///
+    /// This function is identical to `insert`, but takes an `Instant` instead
+    /// of a `Duration`.
+    ///
+    /// `value` is stored in the queue until `when` is reached. At which point,
+    /// `value` will be returned from [`poll`]. If `when` has already been
+    /// reached, then `value` is immediately made available to poll.
     pub fn insert_at(&mut self, value: T, when: Instant) -> Key {
         let idx = self.slab.insert(value);
         self.heap.push(Reverse(Entry {
@@ -87,16 +104,24 @@ impl<T> DelayQueue<T> {
         Key(idx)
     }
 
+    /// Insert `value` into the queue set to expire after the requested duration
+    /// elapses.
+    ///
+    /// This function is identical to `insert_at`, but takes a `Duration`
+    /// instead of an `Instant`.
     pub fn insert(&mut self, value: T, timeout: Duration) -> Key {
         self.insert_at(value, Instant::now() + timeout)
     }
 
+    /// Clears the queue, removing all items.
     pub fn clear(&mut self) {
+        // TODO: should return None
         self.heap.clear();
         self.slab.clear();
     }
 }
 
+/// An entry in `DelayQueue` that has expired and removed.
 #[derive(Debug)]
 pub struct Expired<T> {
     data: T,
