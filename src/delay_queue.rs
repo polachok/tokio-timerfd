@@ -1,5 +1,5 @@
 use crate::{ClockId, TimerFd};
-use futures::{try_ready, Async, Stream, task};
+use futures::{task, try_ready, Async, Stream};
 use slab::Slab;
 use std::cmp::Reverse;
 use std::collections::BinaryHeap;
@@ -69,7 +69,7 @@ impl<T> DelayQueue<T> {
                     data,
                     deadline: item.0.expiration,
                     key: Key(item.0.index),
-                })))
+                })));
             };
         }
         Ok(Async::NotReady)
@@ -125,24 +125,48 @@ impl<T> Stream for DelayQueue<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::{Instant, Duration};
+    use std::time::{Duration, Instant};
     use tokio::prelude::*;
 
     #[test]
-    fn delay_queue_works() {
+    fn delay_queue_insert() {
         tokio::run(future::lazy(|| {
-            let now = Instant::now();
             let mut queue = DelayQueue::new().unwrap();
-            queue.insert_at(3u32, now + Duration::from_micros(30));
-            queue.insert_at(1u32, now + Duration::from_micros(10));
-            queue.insert_at(4u32, now + Duration::from_micros(40));
-            queue.insert_at(2u32, now + Duration::from_micros(20));
+            queue.insert(3u32, Duration::from_micros(300));
+            queue.insert(1u32, Duration::from_micros(100));
+            queue.insert(4u32, Duration::from_micros(400));
+            queue.insert(2u32, Duration::from_micros(200));
             let mut ctr = 1;
-            queue.take(4).for_each(move |item| {
-                assert_eq!(item.into_inner(), ctr);
-                ctr += 1;
-                Ok(())
-            }).map_err(|_| ())
+            queue
+                .take(4)
+                .for_each(move |item| {
+                    assert_eq!(item.into_inner(), ctr);
+                    ctr += 1;
+                    Ok(())
+                })
+                .map_err(|_| ())
+        }))
+    }
+
+    #[test]
+    fn delay_queue_insert_at() {
+        tokio::run(future::lazy(|| {
+            let mut queue = DelayQueue::new().unwrap();
+            let now = Instant::now();
+            queue.insert_at(5u32, now + Duration::from_micros(402));
+            queue.insert_at(4u32, now + Duration::from_micros(401));
+            queue.insert_at(2u32, now + Duration::from_micros(200));
+            queue.insert_at(1u32, now + Duration::from_micros(100));
+            queue.insert_at(3u32, now + Duration::from_micros(300));
+            let mut ctr = 0;
+            queue
+                .take(5)
+                .for_each(move |item| {
+                    ctr += 1;
+                    assert_eq!(item.into_inner(), ctr);
+                    Ok(())
+                })
+                .map_err(|_| ())
         }))
     }
 }
