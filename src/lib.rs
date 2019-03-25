@@ -1,10 +1,24 @@
+//! This crates provides [tokio-timer](https://docs.rs/tokio-timer)-like API 
+//! on top of timerfd. `timerfd` is a Linux-specific API providing timers as
+//! file descriptors. The advantage of `timerfd` is that it provides more
+//! granularity than epoll_wait, which only provides 1 millisecond timeouts.
+//!
+//! * [`Delay`]: A future that completes at a specified instant in time.
+//! * [`Interval`] A stream that yields at fixed time intervals.
+//! * [`DelayQueue`]: A queue where items are returned once the requested delay
+//!   has expired.
+//!
+//! [`Delay`]: struct.Delay.html
+//! [`DelayQueue`]: struct.DelayQueue.html
+//! [`Interval`]: struct.Interval.html
+
 use futures::stream::poll_fn;
 use futures::{try_ready, Async, Stream};
 use mio::unix::EventedFd;
 use mio::{Evented, Poll, PollOpt, Ready, Token};
 use std::io::Result;
 use std::os::unix::io::AsRawFd;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use timerfd::{SetTimeFlags, TimerFd as InnerTimerFd, TimerState};
 use tokio_reactor::PollEvented;
 
@@ -71,7 +85,7 @@ impl TimerFd {
 
 /// Create a Future that completes in `duration` from now.
 pub fn sleep(duration: Duration) -> Delay {
-    Delay::new(Instant::now() + duration)
+    Delay::new(Instant::now() + duration).expect("can't create delay")
 }
 
 #[cfg(test)]

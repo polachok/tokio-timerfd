@@ -6,7 +6,7 @@ use timerfd::{SetTimeFlags, TimerState};
 
 /// A future that completes at a specified instant in time.
 /// Instances of Delay perform no work and complete with () once the specified deadline has been reached.
-/// Delays is powered by `timerfd` and has a resolution of 1 nanosecond.
+/// Delay is powered by `timerfd` and has a resolution of 1 nanosecond.
 pub struct Delay {
     timerfd: TimerFd,
     deadline: Instant,
@@ -15,6 +15,7 @@ pub struct Delay {
 }
 
 impl Delay {
+    /// Create a new `Delay` instance that elapses at `deadline`.
     pub fn new(deadline: Instant) -> Result<Self, IoError> {
         let timerfd = TimerFd::new(ClockId::Monotonic)?;
         Ok(Delay {
@@ -25,14 +26,17 @@ impl Delay {
         })
     }
 
+    /// Returns the instant at which the future will complete.
     pub fn deadline(&self) -> Instant {
         self.deadline
     }
 
+    /// Returns true if the `Delay` has elapsed
     pub fn is_elapsed(&self) -> bool {
         self.deadline > Instant::now()
     }
 
+    /// Reset the `Delay` instance to a new deadline.
     pub fn reset(&mut self, deadline: Instant) {
         self.deadline = deadline;
         self.initialized = false;
@@ -83,6 +87,23 @@ mod tests {
                 })
                 .map_err(|err| panic!("{:?}", err))
         }));
+    }
+
+    #[test]
+    fn dropped_delay_doesnt_fire() {
+        tokio::run(future::lazy(|| {
+            let now = Instant::now();
+            let mut delay_fired = false;
+            let delay = Delay::new(now + Duration::from_millis(500)).unwrap().and_then(move |_| {
+                delay_fired = true;
+                Ok(())
+            });
+            delay.select(future::ok(())).and_then(move |_| {
+                assert_eq!(delay_fired, false);
+                Ok(())
+            })
+            .map_err(|_err| panic!())
+        }))
     }
 
     #[test]
