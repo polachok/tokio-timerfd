@@ -1,5 +1,5 @@
 use crate::{ClockId, TimerFd};
-use futures::{try_ready, Async, Future, task};
+use futures::{task, try_ready, Async, Future};
 use std::io::Error as IoError;
 use std::time::Instant;
 use timerfd::{SetTimeFlags, TimerState};

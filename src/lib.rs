@@ -69,6 +69,11 @@ impl TimerFd {
     }
 }
 
+/// Create a Future that completes in `duration` from now.
+pub fn sleep(duration: Duration) -> Delay {
+    Delay::new(Instant::now() + duration)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
