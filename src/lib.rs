@@ -1,7 +1,13 @@
 //! This crates provides [tokio-timer](https://docs.rs/tokio-timer)-like API
-//! on top of timerfd. `timerfd` is a Linux-specific API providing timers as
-//! file descriptors. The advantage of `timerfd` is that it provides more
-//! granularity than epoll_wait, which only provides 1 millisecond timeouts.
+//! on top of timerfd. `timerfd` is a Linux-specific API providing timer notifications as
+//! file descriptor read events.
+//!
+//! The advantage of `timerfd` is that it has more granularity than epoll_wait(),
+//! which only provides 1 millisecond timeouts. `timerfd` API allows for nanosecond
+//! precision, but precise timing of the wakeup is not guaranteed on a normal
+//! multitasking system.
+//!
+//! Despite the name, this crate is *not* a part of the tokio project.
 //!
 //! * [`Delay`]: A future that completes at a specified instant in time.
 //! * [`Interval`] A stream that yields at fixed time intervals.
