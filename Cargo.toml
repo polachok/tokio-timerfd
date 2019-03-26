@@ -1,13 +1,16 @@
 [package]
 name = "tokio-timerfd"
 version = "0.1.0"
-authors = ["Alexander Polakov <a.polakov@iconic.vc>"]
+authors = ["Alexander Polakov <plhk@sdf.org>"]
 edition = "2018"
 description = "timerfd support for tokio"
 license = "MIT"
 documentation = "https://docs.rs/tokio-timerfd"
 repository = "https://github.com/polachok/tokio-timerfd"
 homepage = "https://github.com/polachok/tokio-timerfd"
+readme = "README.md"
+categories = ["asynchronous", "os", "os::unix-apis"]
+keywords = ["timerfd", "timers"]
 
 [dependencies]
 tokio-reactor = "0.1"
