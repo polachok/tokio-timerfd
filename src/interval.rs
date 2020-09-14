@@ -1,6 +1,8 @@
 use crate::{ClockId, TimerFd};
-use futures::{try_ready, Async, Stream};
+use futures_util::{ready, stream::Stream};
 use std::io::Error as IoError;
+use std::pin::Pin;
+use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
 use timerfd::{SetTimeFlags, TimerState};
 
@@ -49,10 +51,9 @@ impl Interval {
 }
 
 impl Stream for Interval {
-    type Item = ();
-    type Error = IoError;
+    type Item = Result<(), IoError>;
 
-    fn poll(&mut self) -> Result<Async<Option<Self::Item>>, Self::Error> {
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Option<Self::Item>> {
         if !self.initialized {
             let now = Instant::now();
             let mut first_duration = if self.at > now {
@@ -63,17 +64,18 @@ impl Stream for Interval {
             if first_duration == Duration::from_millis(0) {
                 first_duration = self.duration
             }
+            let duration = self.duration;
             self.timerfd.set_state(
                 TimerState::Periodic {
                     current: first_duration,
-                    interval: self.duration,
+                    interval: duration,
                 },
                 SetTimeFlags::Default,
             );
             self.initialized = true;
         }
-        try_ready!(self.timerfd.poll_read());
-        Ok(Async::Ready(Some(())))
+        let res = ready!(self.timerfd.poll_read(cx));
+        Poll::Ready(Some(res))
     }
 }
 
@@ -81,41 +83,17 @@ impl Stream for Interval {
 mod tests {
     use super::*;
     use std::time::Instant;
-    use tokio::prelude::*;
 
-    #[test]
-    fn interval_works_zero() {
-        tokio::run(future::lazy(|| {
-            let now = Instant::now();
-            let interval = Interval::new(Instant::now(), Duration::from_micros(0)).unwrap();
-            interval
-                .take(2)
-                .map_err(|err| panic!("{:?}", err))
-                .for_each(move |_| Ok(()))
-                .and_then(move |_| {
-                    let elapsed = now.elapsed();
-                    println!("{:?}", elapsed);
-                    assert!(elapsed < Duration::from_millis(1));
-                    Ok(())
-                })
-        }));
-    }
-
-    #[test]
-    fn interval_works() {
-        tokio::run(future::lazy(|| {
-            let now = Instant::now();
-            let interval = Interval::new_interval(Duration::from_micros(1)).unwrap();
-            interval
-                .take(2)
-                .map_err(|err| panic!("{:?}", err))
-                .for_each(move |_| Ok(()))
-                .and_then(move |_| {
-                    let elapsed = now.elapsed();
-                    println!("{:?}", elapsed);
-                    assert!(elapsed < Duration::from_millis(1));
-                    Ok(())
-                })
-        }));
+    #[tokio::test]
+    async fn interval_works() {
+        use tokio::stream::StreamExt;
+        let now = Instant::now();
+        let interval = Interval::new_interval(Duration::from_micros(1)).unwrap();
+        tokio::pin!(interval);
+        let _ = interval.next().await;
+        let _ = interval.next().await;
+        let elapsed = now.elapsed();
+        println!("{:?}", elapsed);
+        assert!(elapsed < Duration::from_millis(1));
     }
 }

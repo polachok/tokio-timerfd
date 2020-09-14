@@ -18,15 +18,15 @@
 //! [`DelayQueue`]: struct.DelayQueue.html
 //! [`Interval`]: struct.Interval.html
 
-use futures::stream::poll_fn;
-use futures::{try_ready, Async, Stream};
+use futures_core::ready;
 use mio::unix::EventedFd;
 use mio::{Evented, Poll, PollOpt, Ready, Token};
 use std::io::Result;
 use std::os::unix::io::AsRawFd;
+use std::task::{self, Context};
 use std::time::{Duration, Instant};
 use timerfd::{SetTimeFlags, TimerFd as InnerTimerFd, TimerState};
-use tokio_reactor::PollEvented;
+use tokio::io::PollEvented;
 
 pub use timerfd::ClockId;
 
@@ -57,8 +57,8 @@ impl Evented for Inner {
 pub struct TimerFd(PollEvented<Inner>);
 
 impl TimerFd {
-    pub fn new(clock: ClockId) -> std::io::Result<Self> {
-        let inner = PollEvented::new(Inner(InnerTimerFd::new_custom(clock, true, true)?));
+    pub fn new(clock: ClockId) -> Result<Self> {
+        let inner = PollEvented::new(Inner(InnerTimerFd::new_custom(clock, true, true)?))?;
         Ok(TimerFd(inner))
     }
 
@@ -66,56 +66,15 @@ impl TimerFd {
         (self.0).get_mut().0.set_state(state, flags);
     }
 
-    fn poll_read(&mut self) -> Result<Async<()>> {
-        let ready = try_ready!(self.0.poll_read_ready(Ready::readable()));
+    fn poll_read(&mut self, cx: &mut Context) -> task::Poll<Result<()>> {
+        let ready = ready!(self.0.poll_read_ready(cx, Ready::readable()))?;
         self.0.get_mut().0.read();
-        self.0.clear_read_ready(ready)?;
-        Ok(Async::Ready(()))
-    }
-
-    #[deprecated(note = "please use Interval")]
-    pub fn periodic(mut self, dur: Duration) -> impl Stream<Item = (), Error = std::io::Error> {
-        self.set_state(
-            TimerState::Periodic {
-                current: dur,
-                interval: dur,
-            },
-            SetTimeFlags::Default,
-        );
-        poll_fn(move || {
-            try_ready!(self.poll_read());
-            Ok(Async::Ready(Some(())))
-        })
+        let res = self.0.clear_read_ready(cx, ready);
+        task::Poll::Ready(res)
     }
 }
 
 /// Create a Future that completes in `duration` from now.
 pub fn sleep(duration: Duration) -> Delay {
     Delay::new(Instant::now() + duration).expect("can't create delay")
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::time::Instant;
-    use tokio::prelude::*;
-
-    #[test]
-    fn periodic_works() {
-        let timer = TimerFd::new(ClockId::Monotonic).unwrap();
-        tokio::run(future::lazy(|| {
-            let now = Instant::now();
-            timer
-                .periodic(Duration::from_micros(1))
-                .take(2)
-                .map_err(|err| println!("{:?}", err))
-                .for_each(move |_| Ok(()))
-                .and_then(move |_| {
-                    let elapsed = now.elapsed();
-                    println!("{:?}", elapsed);
-                    assert!(elapsed < Duration::from_millis(1));
-                    Ok(())
-                })
-        }));
-    }
 }

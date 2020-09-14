@@ -1,11 +1,16 @@
 use crate::{ClockId, TimerFd};
-use futures::{task, try_ready, Async, Stream};
+use futures_util::{ready, stream::Stream};
 use slab::Slab;
 use std::cmp::Reverse;
 use std::collections::BinaryHeap;
+use std::future::Future;
 use std::io::Error as IoError;
+use std::pin::Pin;
+use std::task::Context;
+use std::task::Poll;
 use std::time::{Duration, Instant};
 use timerfd::{SetTimeFlags, TimerState};
+use tokio::sync::Notify;
 
 struct Entry {
     expiration: Instant,
@@ -41,7 +46,7 @@ pub struct DelayQueue<T> {
     timerfd: TimerFd,
     slab: Slab<T>,
     heap: BinaryHeap<Reverse<Entry>>,
-    task: Option<task::Task>,
+    task: Notify,
 }
 
 impl<T> DelayQueue<T> {
@@ -54,33 +59,8 @@ impl<T> DelayQueue<T> {
             timerfd,
             heap: BinaryHeap::new(),
             slab: Slab::new(),
-            task: None,
+            task: Notify::new(),
         })
-    }
-
-    fn poll_next(&mut self) -> Result<Async<Option<Expired<T>>>, IoError> {
-        let now = Instant::now();
-        if let Some(item) = self.heap.peek() {
-            if item.0.expiration > now {
-                let duration = item.0.expiration - now;
-                self.timerfd
-                    .set_state(TimerState::Oneshot(duration), SetTimeFlags::Default);
-            } else {
-                let item = self.heap.pop().unwrap();
-                let data = self.slab.remove(item.0.index);
-
-                if let Some(task) = &self.task {
-                    task.notify();
-                }
-
-                return Ok(Async::Ready(Some(Expired {
-                    data,
-                    deadline: item.0.expiration,
-                    key: Key(item.0.index),
-                })));
-            };
-        }
-        Ok(Async::NotReady)
     }
 
     /// Insert `value` into the queue set to expire at a specific instant in
@@ -98,9 +78,7 @@ impl<T> DelayQueue<T> {
             expiration: when,
             index: idx,
         }));
-        if let Some(task) = &self.task {
-            task.notify();
-        }
+        self.task.notify();
         Key(idx)
     }
 
@@ -135,15 +113,43 @@ impl<T> Expired<T> {
     }
 }
 
-impl<T> Stream for DelayQueue<T> {
-    type Item = Expired<T>;
-    type Error = IoError;
+impl<T> Stream for DelayQueue<T>
+where
+    T: Unpin,
+{
+    type Item = Result<Expired<T>, IoError>;
 
-    fn poll(&mut self) -> Result<Async<Option<Self::Item>>, Self::Error> {
-        self.timerfd.poll_read()?;
-        self.task = Some(task::current());
-        let expired = try_ready!(self.poll_next());
-        Ok(Async::Ready(expired))
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Option<Self::Item>> {
+        {
+            let notified = self.task.notified();
+            tokio::pin!(notified);
+            let _ = notified.poll(cx);
+        }
+
+        loop {
+            let now = Instant::now();
+            if let Some(item) = self.heap.peek() {
+                if item.0.expiration > now {
+                    let duration = item.0.expiration - now;
+                    self.timerfd
+                        .set_state(TimerState::Oneshot(duration), SetTimeFlags::Default);
+                } else {
+                    let item = self.heap.pop().unwrap();
+                    let data = self.slab.remove(item.0.index);
+
+                    self.task.notify();
+
+                    return Poll::Ready(Some(Ok(Expired {
+                        data,
+                        deadline: item.0.expiration,
+                        key: Key(item.0.index),
+                    })));
+                };
+            }
+            if let Err(err) = ready!(self.timerfd.poll_read(cx)) {
+                return Poll::Ready(Some(Err(err)));
+            }
+        }
     }
 }
 
@@ -151,47 +157,35 @@ impl<T> Stream for DelayQueue<T> {
 mod tests {
     use super::*;
     use std::time::{Duration, Instant};
-    use tokio::prelude::*;
+    use tokio::stream::StreamExt;
 
-    #[test]
-    fn delay_queue_insert() {
-        tokio::run(future::lazy(|| {
-            let mut queue = DelayQueue::new().unwrap();
-            queue.insert(3u32, Duration::from_micros(300));
-            queue.insert(1u32, Duration::from_micros(100));
-            queue.insert(4u32, Duration::from_micros(400));
-            queue.insert(2u32, Duration::from_micros(200));
-            let mut ctr = 1;
-            queue
-                .take(4)
-                .for_each(move |item| {
-                    assert_eq!(item.into_inner(), ctr);
-                    ctr += 1;
-                    Ok(())
-                })
-                .map_err(|_| ())
-        }))
+    #[tokio::test]
+    async fn delay_queue_insert() {
+        let mut queue = DelayQueue::new().unwrap();
+        queue.insert(3u32, Duration::from_micros(300));
+        queue.insert(1u32, Duration::from_micros(100));
+        queue.insert(4u32, Duration::from_micros(400));
+        queue.insert(2u32, Duration::from_micros(200));
+        tokio::pin!(queue);
+        for ctr in 1..5u32 {
+            let item = queue.next().await.unwrap().unwrap();
+            assert_eq!(item.into_inner(), ctr);
+        }
     }
 
-    #[test]
-    fn delay_queue_insert_at() {
-        tokio::run(future::lazy(|| {
-            let mut queue = DelayQueue::new().unwrap();
-            let now = Instant::now();
-            queue.insert_at(5u32, now + Duration::from_micros(402));
-            queue.insert_at(4u32, now + Duration::from_micros(401));
-            queue.insert_at(2u32, now + Duration::from_micros(200));
-            queue.insert_at(1u32, now + Duration::from_micros(100));
-            queue.insert_at(3u32, now + Duration::from_micros(300));
-            let mut ctr = 0;
-            queue
-                .take(5)
-                .for_each(move |item| {
-                    ctr += 1;
-                    assert_eq!(item.into_inner(), ctr);
-                    Ok(())
-                })
-                .map_err(|_| ())
-        }))
+    #[tokio::test]
+    async fn delay_queue_insert_at() {
+        let mut queue = DelayQueue::new().unwrap();
+        let now = Instant::now();
+        queue.insert_at(5u32, now + Duration::from_micros(402));
+        queue.insert_at(4u32, now + Duration::from_micros(401));
+        queue.insert_at(2u32, now + Duration::from_micros(200));
+        queue.insert_at(1u32, now + Duration::from_micros(100));
+        queue.insert_at(3u32, now + Duration::from_micros(300));
+        tokio::pin!(queue);
+        for ctr in 1..6u32 {
+            let item = queue.next().await.unwrap().unwrap();
+            assert_eq!(item.into_inner(), ctr);
+        }
     }
 }
