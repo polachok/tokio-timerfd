@@ -63,6 +63,10 @@ impl<T> DelayQueue<T> {
         })
     }
 
+    pub fn len(&self) -> usize {
+        self.slab.len()
+    }
+
     /// Insert `value` into the queue set to expire at a specific instant in
     /// time.
     ///
