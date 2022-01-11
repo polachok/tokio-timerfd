@@ -18,104 +18,79 @@
 //! [`DelayQueue`]: struct.DelayQueue.html
 //! [`Interval`]: struct.Interval.html
 
-use futures::stream::poll_fn;
-use futures::{try_ready, Async, Stream};
-use mio::unix::EventedFd;
-use mio::{Evented, Poll, PollOpt, Ready, Token};
-use std::io::Result;
-use std::os::unix::io::AsRawFd;
+use std::io::{Error, Result};
+use std::os::unix::io::{AsRawFd, RawFd};
+use std::pin::Pin;
+use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
+
+use futures::ready;
 use timerfd::{SetTimeFlags, TimerFd as InnerTimerFd, TimerState};
-use tokio_reactor::PollEvented;
+use tokio::io::unix::AsyncFd;
+use tokio::io::{AsyncRead, Interest, ReadBuf};
 
 pub use timerfd::ClockId;
 
 mod delay;
+/*
 mod delay_queue;
+*/
 mod interval;
 
 pub use delay::Delay;
-pub use delay_queue::DelayQueue;
 pub use interval::Interval;
+/*
+pub use delay_queue::DelayQueue;
+*/
 
-struct Inner(InnerTimerFd);
-
-impl Evented for Inner {
-    fn register(&self, poll: &Poll, token: Token, interest: Ready, opts: PollOpt) -> Result<()> {
-        poll.register(&EventedFd(&self.0.as_raw_fd()), token, interest, opts)
-    }
-
-    fn reregister(&self, poll: &Poll, token: Token, interest: Ready, opts: PollOpt) -> Result<()> {
-        poll.reregister(&EventedFd(&self.0.as_raw_fd()), token, interest, opts)
-    }
-
-    fn deregister(&self, poll: &Poll) -> Result<()> {
-        poll.deregister(&EventedFd(&self.0.as_raw_fd()))
-    }
-}
-
-pub struct TimerFd(PollEvented<Inner>);
+pub struct TimerFd(AsyncFd<InnerTimerFd>);
 
 impl TimerFd {
     pub fn new(clock: ClockId) -> std::io::Result<Self> {
-        let inner = PollEvented::new(Inner(InnerTimerFd::new_custom(clock, true, true)?));
+        let fd = InnerTimerFd::new_custom(clock, true, true)?;
+        let inner = AsyncFd::with_interest(fd, Interest::READABLE)?;
         Ok(TimerFd(inner))
     }
 
     fn set_state(&mut self, state: TimerState, flags: SetTimeFlags) {
-        (self.0).get_mut().0.set_state(state, flags);
+        (self.0).get_mut().set_state(state, flags);
     }
+}
 
-    fn poll_read(&mut self) -> Result<Async<()>> {
-        let ready = try_ready!(self.0.poll_read_ready(Ready::readable()));
-        self.0.get_mut().0.read();
-        self.0.clear_read_ready(ready)?;
-        Ok(Async::Ready(()))
+fn read_u64(fd: RawFd) -> Result<u64> {
+    let mut buf = [0u8; 8];
+    let rv = unsafe { libc::read(fd, buf.as_mut_ptr() as *mut _, 8) };
+    match rv {
+        len if len >= 0 => Ok(u64::from_ne_bytes(buf)),
+        _err => Err(Error::last_os_error()),
     }
+}
 
-    #[deprecated(note = "please use Interval")]
-    pub fn periodic(mut self, dur: Duration) -> impl Stream<Item = (), Error = std::io::Error> {
-        self.set_state(
-            TimerState::Periodic {
-                current: dur,
-                interval: dur,
-            },
-            SetTimeFlags::Default,
-        );
-        poll_fn(move || {
-            try_ready!(self.poll_read());
-            Ok(Async::Ready(Some(())))
-        })
+impl AsyncRead for TimerFd {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<Result<()>> {
+        let inner = self.as_mut();
+        let fd = inner.0.as_raw_fd();
+
+        loop {
+            let mut guard = ready!(inner.0.poll_read_ready(cx))?;
+            match guard.try_io(|_| read_u64(fd)) {
+                Ok(res) => {
+                    let num = res?;
+                    buf.put_slice(&num.to_ne_bytes());
+                    break;
+                }
+                Err(_) => continue,
+            }
+        }
+        Poll::Ready(Ok(()))
     }
 }
 
 /// Create a Future that completes in `duration` from now.
 pub fn sleep(duration: Duration) -> Delay {
     Delay::new(Instant::now() + duration).expect("can't create delay")
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::time::Instant;
-    use tokio::prelude::*;
-
-    #[test]
-    fn periodic_works() {
-        let timer = TimerFd::new(ClockId::Monotonic).unwrap();
-        tokio::run(future::lazy(|| {
-            let now = Instant::now();
-            timer
-                .periodic(Duration::from_micros(1))
-                .take(2)
-                .map_err(|err| println!("{:?}", err))
-                .for_each(move |_| Ok(()))
-                .and_then(move |_| {
-                    let elapsed = now.elapsed();
-                    println!("{:?}", elapsed);
-                    assert!(elapsed < Duration::from_millis(1));
-                    Ok(())
-                })
-        }));
-    }
 }
