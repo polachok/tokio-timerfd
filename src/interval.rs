@@ -76,9 +76,7 @@ impl Stream for Interval {
         }
         let mut buf = [0u8; 8];
         let mut buf = ReadBuf::new(&mut buf);
-        let timer = &mut self.as_mut().timerfd;
-        tokio::pin!(timer);
-        ready!(timer.poll_read(cx, &mut buf)?);
+        ready!(Pin::new(&mut self.as_mut().timerfd).poll_read(cx, &mut buf)?);
         Poll::Ready(Some(Ok(())))
     }
 }
