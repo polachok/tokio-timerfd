@@ -1,10 +1,11 @@
+use std::future::Future;
 use std::io::Error as IoError;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 use std::time::Instant;
 
 use crate::{ClockId, TimerFd};
-use futures::{ready, Future};
+use futures_core::ready;
 use timerfd::{SetTimeFlags, TimerState};
 use tokio::io::{AsyncRead, ReadBuf};
 

@@ -24,7 +24,7 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
 
-use futures::ready;
+use futures_core::ready;
 use timerfd::{SetTimeFlags, TimerFd as InnerTimerFd, TimerState};
 use tokio::io::unix::AsyncFd;
 use tokio::io::{AsyncRead, Interest, ReadBuf};
