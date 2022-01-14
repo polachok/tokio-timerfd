@@ -1,8 +1,12 @@
-use crate::{ClockId, TimerFd};
-use futures::{try_ready, Async, Stream};
 use std::io::Error as IoError;
+use std::pin::Pin;
+use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
+
+use crate::{ClockId, TimerFd};
+use futures_core::{ready, Stream};
 use timerfd::{SetTimeFlags, TimerState};
+use tokio::io::{AsyncRead, ReadBuf};
 
 /// A stream representing notifications at fixed interval
 pub struct Interval {
@@ -49,73 +53,66 @@ impl Interval {
 }
 
 impl Stream for Interval {
-    type Item = ();
-    type Error = IoError;
+    type Item = Result<(), IoError>;
 
-    fn poll(&mut self) -> Result<Async<Option<Self::Item>>, Self::Error> {
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         if !self.initialized {
             let now = Instant::now();
-            let mut first_duration = if self.at > now {
+            let first_duration = if self.at > now {
                 self.at - now
             } else {
-                self.duration
+                /* can't set it to zero as it disables timer */
+                Duration::from_nanos(1)
             };
-            if first_duration == Duration::from_millis(0) {
-                first_duration = self.duration
-            }
-            self.timerfd.set_state(
+            let duration = self.duration;
+            self.as_mut().timerfd.set_state(
                 TimerState::Periodic {
                     current: first_duration,
-                    interval: self.duration,
+                    interval: duration,
                 },
                 SetTimeFlags::Default,
             );
             self.initialized = true;
         }
-        try_ready!(self.timerfd.poll_read());
-        Ok(Async::Ready(Some(())))
+        let mut buf = [0u8; 8];
+        let mut buf = ReadBuf::new(&mut buf);
+        ready!(Pin::new(&mut self.as_mut().timerfd).poll_read(cx, &mut buf)?);
+        Poll::Ready(Some(Ok(())))
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use futures::stream::StreamExt;
     use std::time::Instant;
-    use tokio::prelude::*;
 
-    #[test]
-    fn interval_works_zero() {
-        tokio::run(future::lazy(|| {
-            let now = Instant::now();
-            let interval = Interval::new(Instant::now(), Duration::from_micros(0)).unwrap();
-            interval
-                .take(2)
-                .map_err(|err| panic!("{:?}", err))
-                .for_each(move |_| Ok(()))
-                .and_then(move |_| {
-                    let elapsed = now.elapsed();
-                    println!("{:?}", elapsed);
-                    assert!(elapsed < Duration::from_millis(1));
-                    Ok(())
-                })
-        }));
+    #[tokio::test]
+    async fn interval_works() {
+        let mut interval = Interval::new_interval(Duration::from_micros(1)).unwrap();
+
+        let start = Instant::now();
+        for _ in 0..5 {
+            interval.next().await.unwrap().unwrap();
+        }
+        let elapsed = start.elapsed();
+        println!("{:?}", elapsed);
+        assert!(elapsed < Duration::from_millis(1));
     }
 
-    #[test]
-    fn interval_works() {
-        tokio::run(future::lazy(|| {
-            let now = Instant::now();
-            let interval = Interval::new_interval(Duration::from_micros(1)).unwrap();
-            interval
-                .take(2)
-                .map_err(|err| panic!("{:?}", err))
-                .for_each(move |_| Ok(()))
-                .and_then(move |_| {
-                    let elapsed = now.elapsed();
-                    println!("{:?}", elapsed);
-                    assert!(elapsed < Duration::from_millis(1));
-                    Ok(())
-                })
-        }));
+    #[tokio::test]
+    async fn long_interval_works() {
+        let mut interval = Interval::new_interval(Duration::from_secs(1)).unwrap();
+
+        let start = Instant::now();
+        for _ in 0..5 {
+            let before = Instant::now();
+            interval.next().await.unwrap().unwrap();
+            let elapsed = before.elapsed();
+            assert!(elapsed.as_secs_f64() > 0.99 && elapsed.as_secs_f64() < 1.1);
+        }
+        let elapsed = start.elapsed();
+        println!("long interval elapsed: {:?}", elapsed);
+        assert!(elapsed < Duration::from_secs(6));
     }
 }
