@@ -1,4 +1,4 @@
-use crate::{ClockId, TimerFd};
+use crate::{get_clock, TimerFd};
 use futures::{task, try_ready, Async, Stream};
 use slab::Slab;
 use std::cmp::Reverse;
@@ -49,7 +49,7 @@ impl<T> DelayQueue<T> {
     ///
     /// The queue will not allocate storage until items are inserted into it.
     pub fn new() -> Result<DelayQueue<T>, IoError> {
-        let timerfd = TimerFd::new(ClockId::Monotonic)?;
+        let timerfd = TimerFd::new(get_clock())?;
         Ok(DelayQueue {
             timerfd,
             heap: BinaryHeap::new(),

@@ -12,6 +12,10 @@ readme = "README.md"
 categories = ["asynchronous", "os", "os::unix-apis"]
 keywords = ["timerfd", "timers"]
 
+[features]
+boottime = []
+realtime = []
+
 [dependencies]
 tokio = { version = "1.0", features = ["net"] }
 timerfd = "1.0"

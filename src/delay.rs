@@ -4,7 +4,7 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 use std::time::Instant;
 
-use crate::{ClockId, TimerFd};
+use crate::{get_clock, TimerFd};
 use futures_core::ready;
 use timerfd::{SetTimeFlags, TimerState};
 use tokio::io::{AsyncRead, ReadBuf};
@@ -21,7 +21,7 @@ pub struct Delay {
 impl Delay {
     /// Create a new `Delay` instance that elapses at `deadline`.
     pub fn new(deadline: Instant) -> Result<Self, IoError> {
-        let timerfd = TimerFd::new(ClockId::Monotonic)?;
+        let timerfd = TimerFd::new(get_clock())?;
         Ok(Delay {
             timerfd,
             deadline,
