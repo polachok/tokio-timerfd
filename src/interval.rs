@@ -3,7 +3,7 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
 
-use crate::{ClockId, TimerFd};
+use crate::{get_clock, TimerFd};
 use futures_core::{ready, Stream};
 use timerfd::{SetTimeFlags, TimerState};
 use tokio::io::{AsyncRead, ReadBuf};
@@ -25,7 +25,7 @@ impl Interval {
     ///
     /// This function panics if `duration` is zero.
     pub fn new(at: Instant, duration: Duration) -> Result<Interval, IoError> {
-        let timerfd = TimerFd::new(ClockId::Monotonic)?;
+        let timerfd = TimerFd::new(get_clock())?;
         assert!(
             duration > Duration::new(0, 0),
             "`duration` must be non-zero."

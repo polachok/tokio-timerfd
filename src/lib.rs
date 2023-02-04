@@ -94,3 +94,18 @@ impl AsyncRead for TimerFd {
 pub fn sleep(duration: Duration) -> Delay {
     Delay::new(Instant::now() + duration).expect("can't create delay")
 }
+
+#[cfg(feature = "realtime")]
+fn get_clock() -> ClockId {
+    ClockId::Realtime
+}
+
+#[cfg(feature = "boottime")]
+fn get_clock() -> ClockId {
+    ClockId::Boottime
+}
+
+#[cfg(not(any(feature = "boottime", feature = "realtime")))]
+fn get_clock() -> ClockId {
+    ClockId::Monotonic
+}
